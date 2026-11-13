@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  web:
+    build: .
+    ports:
+      - "8090:8000"
+    volumes:
+      - uploads_data:/app/uploads
+    environment:
+      - DJANGO_SECRET_KEY=change-me-in-production
+      - DEBUG=1
+    restart: unless-stopped
+
+volumes:
+  uploads_data:

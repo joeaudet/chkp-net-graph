@@ -1,0 +1,1633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NetGraph — IP Relationship Explorer</title>
+{% load static %}
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #388bfd;
+    --internal: #3fb950;
+    --external: #f78166;
+    --loopback: #d2a8ff;
+    --link-color: #444c56;
+    --link-out: #58a6ff;
+    --link-in: #b59fef;
+    --panel-w: 320px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  header h1 { font-size: 18px; font-weight: 600; letter-spacing: -.3px; }
+  header h1 span { color: var(--accent); }
+
+  .upload-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 7px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: opacity .15s;
+  }
+  .upload-btn:hover { opacity: .85; }
+  .upload-btn svg { width: 15px; height: 15px; }
+  #fileInput { display: none; }
+  .header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .pull-api-btn {
+    background: none;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: border-color .15s, color .15s;
+  }
+  .pull-api-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .cp-input {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 7px 10px;
+    font-size: 13px;
+    box-sizing: border-box;
+    margin-top: 4px;
+  }
+  .cp-input:focus { outline: none; border-color: var(--accent); }
+  .cp-input[type="datetime-local"]::-webkit-calendar-picker-indicator { filter: invert(0.6); cursor: pointer; }
+  .cp-label { display: block; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-top: 10px; }
+  .cp-label:first-child { margin-top: 0; }
+  #cpConnStatus { display:inline-flex; align-items:center; gap:5px; font-size:12px; }
+  .cp-dot { width:8px; height:8px; border-radius:50%; background:var(--border); flex-shrink:0; }
+  .cp-dot.ok { background:#3fb950; }
+  .cp-dot.err { background:#f97583; }
+
+  /* ── Stats bar ── */
+  #statsBar {
+    display: none;
+    gap: 24px;
+    padding: 8px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  #statsBar.visible { display: flex; flex-wrap: wrap; }
+  .stat-item strong { color: var(--text); }
+
+  /* ── Legend ── */
+  #legend {
+    display: none;
+    gap: 20px;
+    padding: 6px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  #legend.visible { display: flex; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+  }
+  .legend-dot.internal { background: var(--internal); }
+  .legend-dot.external { background: var(--external); }
+  .legend-dot.loopback { background: var(--loopback); }
+
+  /* ── Controls ── */
+  #controls {
+    display: none;
+    gap: 16px;
+    padding: 8px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  #controls.visible { display: flex; }
+  .ctrl-group { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
+  .ctrl-group label { white-space: nowrap; }
+  .ctrl-group input[type=range] { width: 90px; accent-color: var(--accent); }
+  .ctrl-group select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 12px;
+  }
+  .ctrl-btn {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  .ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .ctrl-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(56,139,253,.1); }
+
+  .restore-btn {
+    background: var(--bg);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background .15s;
+    display: none;
+  }
+  .restore-btn:hover { background: rgba(56,139,253,.12); }
+
+  .hide-node-btn {
+    width: 100%;
+    background: rgba(247,129,102,.08);
+    color: var(--external);
+    border: 1px solid rgba(247,129,102,.3);
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .hide-node-btn:hover { background: rgba(247,129,102,.18); }
+
+  .isolate-node-btn {
+    width: 100%;
+    background: rgba(56,139,253,.08);
+    color: var(--accent);
+    border: 1px solid rgba(56,139,253,.3);
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .isolate-node-btn:hover { background: rgba(56,139,253,.18); }
+
+  .layout-select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  /* ── Main area ── */
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── Graph canvas ── */
+  #graphWrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #graph {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* D3 elements */
+  .link {
+    stroke: var(--link-color);
+    stroke-opacity: 0.6;
+    fill: none;
+    transition: stroke .15s;
+  }
+  .link.outbound { stroke: var(--link-out); stroke-opacity: 1; }
+  .link.inbound  { stroke: var(--link-in);  stroke-opacity: 1; }
+  .link-arrow { fill: var(--link-color); }
+
+  .node circle {
+    cursor: pointer;
+    stroke: rgba(255,255,255,.15);
+    stroke-width: 1.5px;
+    transition: r .15s, stroke .15s;
+  }
+  .node circle:hover { stroke: #fff; stroke-width: 2px; }
+  .node.selected circle { stroke: #fff; stroke-width: 2.5px; }
+
+  .node-label {
+    font-size: 10px;
+    fill: var(--text-muted);
+    pointer-events: none;
+    user-select: none;
+  }
+
+  /* ── Loading overlay ── */
+  #loading {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(13,17,23,.8);
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 20;
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+  #loading.visible { display: flex; }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Welcome screen ── */
+  #welcome {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+  #welcome svg { width: 64px; height: 64px; opacity: .3; }
+  #welcome h2 { font-size: 20px; font-weight: 500; color: var(--text); opacity: .5; }
+  #welcome p { font-size: 13px; max-width: 300px; text-align: center; line-height: 1.6; }
+
+  /* ── Side panel ── */
+  #sidePanel {
+    width: var(--panel-w);
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  #sidePanel.open { display: flex; }
+
+  .panel-header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .panel-header h3 { font-size: 13px; font-weight: 600; }
+  .panel-close {
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; font-size: 18px; line-height: 1;
+    padding: 2px 4px; border-radius: 4px;
+  }
+  .panel-close:hover { color: var(--text); }
+
+  .panel-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
+
+  .panel-section { margin-bottom: 18px; }
+  .panel-section h4 {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  .ip-badge {
+    display: inline-block;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-family: monospace;
+    font-size: 14px;
+    color: var(--accent);
+    word-break: break-all;
+  }
+
+  .type-badge {
+    display: inline-block;
+    border-radius: 20px;
+    padding: 2px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .type-badge.internal { background: rgba(63,185,80,.15); color: var(--internal); }
+  .type-badge.external { background: rgba(247,129,102,.15); color: var(--external); }
+  .type-badge.loopback { background: rgba(210,168,255,.15); color: var(--loopback); }
+
+  .conn-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .conn-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  .conn-item:hover { border-color: var(--accent); }
+  .conn-item .conn-ip { font-family: monospace; color: var(--accent); }
+  .conn-item .conn-meta { color: var(--text-muted); margin-top: 2px; font-size: 11px; }
+
+  .tag-list { display: flex; flex-wrap: wrap; gap: 5px; }
+  .tag {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 11px;
+    font-family: monospace;
+    color: var(--text-muted);
+  }
+  .tag.accept { border-color: rgba(63,185,80,.5); color: var(--internal); }
+  .tag.drop, .tag.reject, .tag.deny { border-color: rgba(247,129,102,.5); color: var(--external); }
+
+  /* ── Logs modal ── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.65);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.visible { display: flex; }
+  .modal-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 92vw;
+    max-height: 82vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .modal-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .modal-body {
+    overflow: scroll;
+    flex: 1;
+    scrollbar-width: auto;
+    scrollbar-color: #30363d #0d1117;
+    scrollbar-gutter: stable both-edges;
+  }
+  .modal-body::-webkit-scrollbar { width: 12px; height: 12px; }
+  .modal-body::-webkit-scrollbar-track { background: #0d1117; }
+  .modal-body::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+  .modal-body::-webkit-scrollbar-corner { background: #0d1117; }
+  .log-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: monospace; }
+  .log-table th {
+    background: var(--bg);
+    padding: 6px 12px;
+    text-align: left;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    cursor: pointer;
+    user-select: none;
+  }
+  .log-table th:hover { color: var(--text); }
+  .log-table th.sort-active { color: var(--text); }
+  .log-table td {
+    padding: 5px 12px;
+    border-bottom: 1px solid rgba(48,54,61,.4);
+    white-space: nowrap;
+    color: var(--text-muted);
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .log-table tr:hover td { background: rgba(255,255,255,.03); color: var(--text); }
+
+  /* ── Error toast ── */
+  #errorMsg {
+    display: none;
+    position: fixed;
+    bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #3d1e1e;
+    border: 1px solid #f78166;
+    color: #f78166;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-size: 13px;
+    z-index: 100;
+    max-width: 500px;
+    text-align: center;
+  }
+  #errorMsg.visible { display: block; }
+
+  /* ── Tooltip ── */
+  #tooltip {
+    position: fixed;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 50;
+    display: none;
+    max-width: 240px;
+    line-height: 1.7;
+  }
+  #tooltip.visible { display: block; }
+  #tooltip .t-ip { font-family: monospace; color: var(--accent); font-size: 13px; font-weight: 600; }
+  #tooltip .t-row { color: var(--text-muted); }
+  #tooltip .t-row strong { color: var(--text); }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="5" cy="12" r="3" fill="#388bfd"/>
+    <circle cx="19" cy="5" r="3" fill="#3fb950"/>
+    <circle cx="19" cy="19" r="3" fill="#f78166"/>
+    <line x1="8" y1="11" x2="16" y2="6.5" stroke="#444c56" stroke-width="1.5"/>
+    <line x1="8" y1="13" x2="16" y2="17.5" stroke="#444c56" stroke-width="1.5"/>
+  </svg>
+  <h1>Net<span>Graph</span></h1>
+
+  <select id="layoutSelect" class="layout-select" onchange="setLayout(this.value)">
+    <option value="force">Force Layout</option>
+    <option value="hierarchical" selected>Hierarchical</option>
+  </select>
+
+  <button id="restoreBtn" class="restore-btn" onclick="restoreHidden()">↩ Restore hidden</button>
+
+  <div class="header-actions">
+    <button class="pull-api-btn" onclick="openCpModal()">
+      <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15"><path d="M1.75 10a.75.75 0 0 1 .75.75v1.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 13.25 14H2.75A1.75 1.75 0 0 1 1 12.25v-1.5a.75.75 0 0 1 .75-.75Zm3.47-5.28a.75.75 0 0 1 1.06 0L8 6.44l1.72-1.72a.75.75 0 1 1 1.06 1.06l-2.25 2.25a.75.75 0 0 1-1.06 0L5.22 5.78a.75.75 0 0 1 0-1.06ZM8 1a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0V1.75A.75.75 0 0 1 8 1Z"/></svg>
+      Pull via API
+    </button>
+    <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a.75.75 0 0 1 .75.75v5.5h5.5a.75.75 0 0 1 0 1.5h-5.5v5.5a.75.75 0 0 1-1.5 0v-5.5H1.75a.75.75 0 0 1 0-1.5h5.5V1.75A.75.75 0 0 1 8 1Z"/></svg>
+      Import CSV
+    </button>
+  </div>
+  <input type="file" id="fileInput" accept=".csv" onchange="handleFile(event)" />
+</header>
+
+<!-- ── Checkpoint API Modal ───────────────────────────────────────────────── -->
+<div id="cpModal" class="modal-overlay" onclick="closeCpModal()">
+  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:540px;">
+    <div class="modal-header">
+      <span>Checkpoint Management API</span>
+      <button class="ctrl-btn" onclick="closeCpModal()" style="padding:4px 10px;">✕</button>
+    </div>
+    <div class="modal-body" style="padding:18px 20px;overflow:auto;scrollbar-width:auto;scrollbar-color:#30363d #0d1117;">
+
+      <!-- Connection -->
+      <div class="panel-section">
+        <h4>Connection</h4>
+        <label class="cp-label">Management Server (hostname or IP)</label>
+        <input id="cpServer" class="cp-input" type="text" placeholder="192.168.1.1  or  mgmt.example.com:4434" autocomplete="off"/>
+        <label class="cp-label">API Token</label>
+        <input id="cpApiKey" class="cp-input" type="password" placeholder="Paste API token" autocomplete="off"/>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap;">
+          <button class="ctrl-btn" id="cpConnectBtn" onclick="cpConnect()" style="padding:6px 14px;">Connect to Mgmt Server</button>
+          <span id="cpConnStatus"><span class="cp-dot"></span><span id="cpConnText">Not connected</span></span>
+        </div>
+        <div id="cpSidRow" style="display:none;margin-top:10px;font-size:12px;line-height:1.8;">
+          <span style="color:var(--text-muted)">Session ID: </span>
+          <span id="cpSidDisplay" style="font-family:monospace;color:var(--accent);word-break:break-all;"></span>
+          <br/>
+          <button class="ctrl-btn" onclick="cpLogout()" style="margin-top:6px;padding:4px 10px;">Logout</button>
+        </div>
+      </div>
+
+      <!-- Query -->
+      <div class="panel-section" id="cpQuerySection" style="opacity:.35;pointer-events:none;">
+        <h4>Query Parameters</h4>
+        <label class="cp-label">Time Frame</label>
+        <select id="cpTimeFrame" class="layout-select" onchange="cpTimeFrameChange()" style="width:100%;margin-top:4px;">
+          <option value="last-hour" selected>Last Hour</option>
+          <option value="today">Today</option>
+          <option value="this-week">This Week</option>
+          <option value="this-month">This Month</option>
+          <option value="last-7-days">Last 7 Days</option>
+          <option value="last-30-days">Last 30 Days</option>
+          <option value="last-90-days">Last 90 Days</option>
+          <option value="all-time">All Time</option>
+          <option value="custom">Custom Range</option>
+        </select>
+
+        <div id="cpCustomRange" style="display:none;margin-top:10px;grid-template-columns:1fr 1fr;gap:12px;">
+          <div>
+            <label class="cp-label">Start</label>
+            <input id="cpStartTime" class="cp-input" type="datetime-local"/>
+          </div>
+          <div>
+            <label class="cp-label">End</label>
+            <input id="cpEndTime" class="cp-input" type="datetime-local"/>
+          </div>
+        </div>
+
+        <label class="cp-label">Max Logs</label>
+        <input id="cpMaxLogs" class="cp-input" type="number" value="100" min="1" max="10000" style="width:130px;"/>
+
+        <button class="ctrl-btn" id="cpPullBtn" onclick="cpPullLogs()" style="width:100%;padding:8px 14px;margin-top:14px;">Pull Logs</button>
+        <div id="cpQueryStatus" style="font-size:12px;color:var(--text-muted);margin-top:8px;min-height:18px;"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div id="statsBar">
+  <span class="stat-item">Rows: <strong id="statRows">—</strong></span>
+  <span class="stat-item">Unique IPs: <strong id="statIPs">—</strong></span>
+  <span class="stat-item">Connections: <strong id="statConns">—</strong></span>
+  <span class="stat-item">Source col: <strong id="statSrc">—</strong></span>
+  <span class="stat-item">Dest col: <strong id="statDst">—</strong></span>
+</div>
+
+<div id="legend">
+  <span style="font-size:12px;color:var(--text-muted);">Node type:</span>
+  <span class="legend-item"><span class="legend-dot internal"></span>Internal (RFC-1918)</span>
+  <span class="legend-item"><span class="legend-dot external"></span>External / Public</span>
+  <span class="legend-item"><span class="legend-dot loopback"></span>Loopback</span>
+  <span style="margin-left:auto;font-size:11px;color:var(--text-muted);">Node size = connection count &nbsp;·&nbsp; Click a node to inspect</span>
+</div>
+
+<div id="controls">
+  <div class="ctrl-group">
+    <label>Link strength</label>
+    <input type="range" id="sliderStrength" min="10" max="400" value="80" oninput="updateForce()">
+  </div>
+  <div class="ctrl-group">
+    <label>Charge</label>
+    <input type="range" id="sliderCharge" min="-800" max="-10" value="-200" oninput="updateForce()">
+  </div>
+  <div class="ctrl-group">
+    <label>Filter type</label>
+    <select id="filterType" onchange="applyFilter()">
+      <option value="all">All nodes</option>
+      <option value="internal">Internal only</option>
+      <option value="external">External only</option>
+    </select>
+  </div>
+  <div class="ctrl-group">
+    <label>Zoom</label>
+    <button class="ctrl-btn" onclick="setZoom(0.25)">25%</button>
+    <button class="ctrl-btn" onclick="setZoom(0.5)">50%</button>
+    <button class="ctrl-btn" onclick="setZoom(1)">100%</button>
+    <button class="ctrl-btn" onclick="fitToScreen()">Fit</button>
+  </div>
+  <button class="ctrl-btn" onclick="resetZoom()">⟳ Reset view</button>
+  <button class="ctrl-btn" onclick="reheat()">⚡ Reheat</button>
+</div>
+
+<div class="main">
+  <div id="graphWrap">
+    <div id="welcome">
+      <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="32" r="8" stroke="#8b949e" stroke-width="2"/>
+        <circle cx="48" cy="16" r="8" stroke="#8b949e" stroke-width="2"/>
+        <circle cx="48" cy="48" r="8" stroke="#8b949e" stroke-width="2"/>
+        <line x1="24" y1="29" x2="40" y2="20" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="3 2"/>
+        <line x1="24" y1="35" x2="40" y2="44" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="3 2"/>
+      </svg>
+      <h2>No data loaded</h2>
+      <p>Click <strong>Import CSV</strong> to load a firewall log and visualise IP relationships as an interactive network graph.</p>
+    </div>
+
+    <div id="loading">
+      <div class="spinner"></div>
+      <span id="loadingMsg">Parsing CSV…</span>
+    </div>
+
+    <svg id="graph">
+      <defs>
+        <marker id="arrow" viewBox="0 -4 8 8" refX="18" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,-4L8,0L0,4" fill="#444c56"/>
+        </marker>
+        <marker id="arrow-hl" viewBox="0 -4 8 8" refX="18" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,-4L8,0L0,4" fill="#58a6ff"/>
+        </marker>
+      </defs>
+      <g id="zoomGroup"></g>
+    </svg>
+  </div>
+
+  <div id="sidePanel">
+    <div class="panel-header">
+      <h3 id="panelTitle">Node Details</h3>
+      <button class="panel-close" onclick="closePanel()">×</button>
+    </div>
+    <div class="panel-body" id="panelBody"></div>
+  </div>
+</div>
+
+<div id="logsModal" class="modal-overlay" onclick="closeLogs()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <span id="modalTitle"></span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button id="aggregateToggle" class="ctrl-btn" onclick="toggleAggregate()">Aggregate logs</button>
+        <button class="panel-close" onclick="closeLogs()">×</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div id="modalContent"></div>
+    </div>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+<div id="errorMsg"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let graphData = null;
+let simulation = null;
+let svg, zoomGroup, linkSel, nodeSel;
+let selectedNode = null;
+let zoomBehavior;
+let simLinks = null;
+let simNodes = null;
+let layoutMode = "hierarchical";
+let currentLogsIp = null;
+let logsAggregated = false;
+let logSortCol = -1;
+let logSortDir = 1;
+document.getElementById("layoutSelect").value = "hierarchical";
+document.getElementById("filterType").value = "all";
+const hiddenNodes = new Set();
+const hiddenLinks = new Set();
+
+// ── File upload ─────────────────────────────────────────────────────────────
+function handleFile(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  evt.target.value = "";
+
+  showLoading("Parsing CSV…");
+  hideError();
+
+  const fd = new FormData();
+  fd.append("csv_file", file);
+
+  fetch("/api/upload/", { method: "POST", body: fd })
+    .then(r => r.json())
+    .then(data => {
+      hideLoading();
+      if (data.error) { showError(data.error); return; }
+      graphData = data;
+      renderStats(data.stats);
+      buildGraph(data);
+    })
+    .catch(err => {
+      hideLoading();
+      showError("Upload failed: " + err.message);
+    });
+}
+
+// ── Stats ───────────────────────────────────────────────────────────────────
+function renderStats(s) {
+  document.getElementById("statRows").textContent  = s.total_rows.toLocaleString();
+  document.getElementById("statIPs").textContent   = s.unique_ips.toLocaleString();
+  document.getElementById("statConns").textContent = s.unique_connections.toLocaleString();
+  document.getElementById("statSrc").textContent   = s.src_col;
+  document.getElementById("statDst").textContent   = s.dst_col;
+  document.getElementById("statsBar").classList.add("visible");
+  document.getElementById("legend").classList.add("visible");
+  document.getElementById("controls").classList.add("visible");
+  document.getElementById("welcome").style.display = "none";
+}
+
+// ── Graph ────────────────────────────────────────────────────────────────────
+const COLOR = { internal: "#3fb950", external: "#f78166", loopback: "#d2a8ff" };
+
+function nodeColor(d) { return COLOR[d.type] || "#8b949e"; }
+function nodeRadius(d) {
+  const r = Math.sqrt(d.degree || 1) * 4 + 6;
+  return Math.min(r, 28);
+}
+
+function buildGraph(data) {
+  const wrap = document.getElementById("graphWrap");
+  svg = d3.select("#graph");
+  zoomGroup = d3.select("#zoomGroup");
+
+  // Clear previous
+  zoomGroup.selectAll("*").remove();
+
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+
+  // Pre-compute degree
+  const degree = {};
+  data.links.forEach(l => {
+    degree[l.source] = (degree[l.source] || 0) + 1;
+    degree[l.target] = (degree[l.target] || 0) + 1;
+  });
+
+  const nodes = data.nodes.map(n => ({ ...n, degree: degree[n.id] || 1 }));
+  const links = data.links.map(l => ({ ...l }));
+  simLinks = links;
+  simNodes = nodes;
+
+  // Zoom
+  zoomBehavior = d3.zoom()
+    .scaleExtent([0.05, 8])
+    .on("zoom", e => zoomGroup.attr("transform", e.transform));
+  svg.call(zoomBehavior);
+
+  // Arrow markers
+  zoomGroup.append("defs").html(`
+    <marker id="arrow" viewBox="0 -4 8 8" refX="22" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,-4L8,0L0,4" fill="#444c56"/>
+    </marker>
+    <marker id="arrow-out" viewBox="0 -4 8 8" refX="22" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,-4L8,0L0,4" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrow-in" viewBox="0 -4 8 8" refX="22" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,-4L8,0L0,4" fill="#b59fef"/>
+    </marker>
+  `);
+
+  // Links
+  linkSel = zoomGroup.append("g").attr("class","links")
+    .selectAll("line")
+    .data(links)
+    .join("line")
+      .attr("class", "link")
+      .attr("stroke-width", d => Math.min(Math.log(d.count + 1) * 1.2 + 0.5, 6))
+      .attr("marker-end", "url(#arrow)");
+
+  // Nodes
+  const nodeG = zoomGroup.append("g").attr("class","nodes")
+    .selectAll("g")
+    .data(nodes)
+    .join("g")
+      .attr("class", "node")
+      .call(d3.drag()
+        .on("start", dragStart)
+        .on("drag",  dragged)
+        .on("end",   dragEnd))
+      .on("click", (evt, d) => { evt.stopPropagation(); selectNode(d, links); })
+      .on("mouseenter", (evt, d) => showTooltip(evt, d, links))
+      .on("mousemove",  moveTooltip)
+      .on("mouseleave", hideTooltip);
+
+  nodeG.append("circle")
+    .attr("r", nodeRadius)
+    .attr("fill", nodeColor);
+
+  nodeG.append("text")
+    .attr("class", "node-label")
+    .attr("y", d => nodeRadius(d) + 12)
+    .attr("text-anchor", "middle")
+    .text(d => d.id);
+
+  nodeSel = nodeG;
+
+  // Simulation
+  const strength = +document.getElementById("sliderStrength").value;
+  const charge   = +document.getElementById("sliderCharge").value;
+
+  simulation = d3.forceSimulation(nodes)
+    .force("link", d3.forceLink(links).id(d => d.id).distance(strength))
+    .force("charge", d3.forceManyBody().strength(charge))
+    .force("center", d3.forceCenter(w / 2, h / 2))
+    .force("collision", d3.forceCollide().radius(d => nodeRadius(d) + 4))
+    .on("tick", ticked);
+
+  applyLayoutForce();
+
+  // Click on background = deselect
+  svg.on("click", () => { deselectAll(); closePanel(); });
+}
+
+function ticked() {
+  linkSel
+    .attr("x1", d => d.source.x)
+    .attr("y1", d => d.source.y)
+    .attr("x2", d => d.target.x)
+    .attr("y2", d => d.target.y);
+
+  nodeSel.attr("transform", d => `translate(${d.x},${d.y})`);
+}
+
+// ── Force controls ───────────────────────────────────────────────────────────
+function updateForce() {
+  if (!simulation) return;
+  const str = +document.getElementById("sliderStrength").value;
+  const chg = +document.getElementById("sliderCharge").value;
+  simulation.force("link").distance(str);
+  if (layoutMode === "force") simulation.force("charge").strength(chg);
+  simulation.alpha(0.5).restart();
+}
+
+function reheat() {
+  if (simulation) simulation.alpha(1).restart();
+}
+
+function applyLayoutForce() {
+  if (!simulation) return;
+  const h = document.getElementById("graphWrap").clientHeight;
+  if (layoutMode === "hierarchical") {
+    simulation.force("y", d3.forceY(d => {
+      if (d.type === "external") return h * 0.15;
+      if (d.type === "loopback") return h * 0.85;
+      return h * 0.7;
+    }).strength(0.85));
+  } else {
+    simulation.force("y", null);
+  }
+}
+
+function setLayout(mode) {
+  layoutMode = mode;
+  applyLayoutForce();
+  reheat();
+  resetZoom();
+}
+
+function resetZoom() {
+  setZoom(0.75);
+}
+
+function setZoom(scale) {
+  const w = document.getElementById("graphWrap").clientWidth;
+  const h = document.getElementById("graphWrap").clientHeight;
+  svg.transition().duration(400).call(
+    zoomBehavior.transform,
+    d3.zoomIdentity.translate(w / 2 * (1 - scale), h / 2 * (1 - scale)).scale(scale)
+  );
+}
+
+function fitToScreen() {
+  if (!simNodes || !simNodes.length) return;
+  const visible = simNodes.filter(n => !hiddenNodes.has(n.id));
+  if (!visible.length) return;
+  const w = document.getElementById("graphWrap").clientWidth;
+  const h = document.getElementById("graphWrap").clientHeight;
+  const pad = 60;
+  const xs = visible.map(n => n.x), ys = visible.map(n => n.y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const scale = Math.min((w - pad * 2) / (x1 - x0 || 1), (h - pad * 2) / (y1 - y0 || 1), 2);
+  const tx = w / 2 - scale * (x0 + x1) / 2;
+  const ty = h / 2 - scale * (y0 + y1) / 2;
+  svg.transition().duration(500).call(
+    zoomBehavior.transform,
+    d3.zoomIdentity.translate(tx, ty).scale(scale)
+  );
+}
+
+// ── Filter / visibility ──────────────────────────────────────────────────────
+function applyVisibility() {
+  if (!nodeSel) return;
+  const val = document.getElementById("filterType").value;
+  nodeSel.style("display", d => {
+    if (hiddenNodes.has(d.id)) return "none";
+    if (val === "all") return null;
+    return d.type === val ? null : "none";
+  });
+  linkSel.style("display", l => {
+    if (hiddenLinks.has(l)) return "none";
+    if (val === "all") return null;
+    const srcOk = l.source.type === val;
+    const dstOk = l.target.type === val;
+    return (srcOk && dstOk) ? null : "none";
+  });
+}
+
+function applyFilter() { applyVisibility(); }
+
+// ── Drag ────────────────────────────────────────────────────────────────────
+function dragStart(evt, d) {
+  if (!evt.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x; d.fy = d.y;
+}
+function dragged(evt, d) { d.fx = evt.x; d.fy = evt.y; }
+function dragEnd(evt, d) {
+  if (!evt.active) simulation.alphaTarget(0);
+  // keep d.fx/d.fy set so the node stays where it was dropped
+}
+
+// ── Selection / side panel ──────────────────────────────────────────────────
+function selectNode(d, links) {
+  deselectAll();
+  selectedNode = d.id;
+
+  nodeSel.filter(n => n.id === d.id).classed("selected", true);
+
+  // Highlight connected links by direction
+  linkSel
+    .classed("outbound", l => l.source.id === d.id)
+    .classed("inbound",  l => l.target.id === d.id)
+    .attr("marker-end", l => {
+      if (l.source.id === d.id) return "url(#arrow-out)";
+      if (l.target.id === d.id) return "url(#arrow-in)";
+      return "url(#arrow)";
+    });
+
+  openPanel(d, links);
+}
+
+function deselectAll() {
+  selectedNode = null;
+  if (nodeSel) nodeSel.classed("selected", false);
+  if (linkSel) linkSel
+    .classed("outbound", false)
+    .classed("inbound", false)
+    .attr("marker-end", "url(#arrow)");
+}
+
+function openPanel(d, links) {
+  const panel = document.getElementById("sidePanel");
+  panel.classList.add("open");
+  document.getElementById("panelTitle").textContent = d.id;
+
+  const out = links.filter(l => l.source.id === d.id);
+  const inc = links.filter(l => l.target.id === d.id);
+
+  const typeClass = d.type || "external";
+  let html = `
+    <div class="panel-section">
+      <button class="ctrl-btn" style="width:100%;padding:6px 12px;" onclick="goToNode('${d.id}')">Go to node</button>
+      <button class="ctrl-btn" style="width:100%;padding:6px 12px;" onclick="showLogs('${d.id}')">Show logs</button>
+      <button class="ctrl-btn" style="width:100%;padding:6px 12px;" onclick="doNslookup('${d.id}')">NSLookup</button>
+      <button class="isolate-node-btn" onclick="isolateNode('${d.id}')">Show only this node</button>
+      <button class="hide-node-btn" onclick="hideNode('${d.id}')">Hide this node &amp; connections</button>
+    </div>
+    <div id="nslookupResult" style="display:none;margin-bottom:18px;"></div>
+    <div class="panel-section">
+      <h4>IP Address</h4>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span class="ip-badge">${d.id}</span>
+        <button title="Copy IP" onclick="copyIp('${d.id}', this)" style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--text-muted);line-height:1;border-radius:4px;transition:color .15s;" onmouseenter="this.style.color='var(--text)'" onmouseleave="this.style.color='var(--text-muted)'">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+        <span class="type-badge ${typeClass}">${d.type}</span>
+      </div>
+      ${(() => {
+        const nodeDomains = [...new Set([
+          ...inc.flatMap(l => l.domains || []),
+          ...out.flatMap(l => l.domains || []),
+        ])].slice(0, 5);
+        return nodeDomains.length
+          ? `<div style="margin-top:6px;font-size:12px;color:var(--text-muted);">&#x1F310; ${nodeDomains.join(", ")}</div>`
+          : "";
+      })()}
+    </div>
+    <div class="panel-section">
+      <h4>Stats</h4>
+      <div style="font-size:13px;line-height:2;color:var(--text-muted);">
+        <div>Outbound connections: <strong style="color:var(--text)">${out.length}</strong></div>
+        <div>Inbound connections: <strong style="color:var(--text)">${inc.length}</strong></div>
+        <div>Total connections: <strong style="color:var(--text)">${out.length + inc.length}</strong></div>
+        <div>Total events: <strong style="color:var(--text)">${[...out,...inc].reduce((a,l)=>a+l.count,0).toLocaleString()}</strong></div>
+      </div>
+    </div>`;
+
+  if (out.length > 0) {
+    html += `<div class="panel-section"><h4>Outbound (${out.length})</h4><ul class="conn-list">`;
+    out.slice(0, 40).forEach(l => {
+      const tNode = typeof l.target === "object" ? l.target : { id: l.target, type: "external" };
+      html += connItem(tNode.id, l, "→", tNode.type);
+    });
+    if (out.length > 40) html += `<li style="font-size:11px;color:var(--text-muted);padding:4px;">…and ${out.length-40} more</li>`;
+    html += `</ul></div>`;
+  }
+
+  if (inc.length > 0) {
+    html += `<div class="panel-section"><h4>Inbound (${inc.length})</h4><ul class="conn-list">`;
+    inc.slice(0, 40).forEach(l => {
+      const sNode = typeof l.source === "object" ? l.source : { id: l.source, type: "external" };
+      html += connItem(sNode.id, l, "←", sNode.type);
+    });
+    if (inc.length > 40) html += `<li style="font-size:11px;color:var(--text-muted);padding:4px;">…and ${inc.length-40} more</li>`;
+    html += `</ul></div>`;
+  }
+
+  document.getElementById("panelBody").innerHTML = html;
+
+  // Fetch countries for external connected IPs
+  const externalIps = [...new Set([
+    ...out.slice(0,40).filter(l => (typeof l.target === "object" ? l.target.type : "external") === "external").map(l => typeof l.target === "object" ? l.target.id : l.target),
+    ...inc.slice(0,40).filter(l => (typeof l.source === "object" ? l.source.type : "external") === "external").map(l => typeof l.source === "object" ? l.source.id : l.source),
+  ])];
+  if (externalIps.length) fetchGeo(externalIps);
+}
+
+function connItem(ip, link, dir, nodeType) {
+  const protocols = link.protocols.length ? link.protocols.join(", ") : "";
+  const ports     = link.ports.length     ? link.ports.slice(0,5).join(", ") : "";
+  const apps      = link.apps.length      ? link.apps.slice(0,3).join(", ") : "";
+  const domains   = (link.domains || []).slice(0,3).join(", ");
+
+  const tagHtml = link.actions.map(a => {
+    const cls = a.toLowerCase();
+    return `<span class="tag ${cls}">${a}</span>`;
+  }).join("");
+
+  const geoHtml = nodeType === "external"
+    ? `<div style="font-size:11px;color:var(--text-muted);margin-top:1px;" data-geo-ip="${ip}">…</div>`
+    : "";
+
+  const domainHtml = domains
+    ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">&#x1F310; ${domains}</div>`
+    : "";
+
+  return `<li class="conn-item">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <span class="conn-ip">${dir} ${ip}</span>
+      <span style="font-size:11px;color:var(--text-muted)">${link.count.toLocaleString()} events</span>
+    </div>
+    ${geoHtml}
+    ${domainHtml}
+    <div class="conn-meta">
+      ${protocols ? `Proto: ${protocols} &nbsp;` : ""}
+      ${ports ? `Port: ${ports} &nbsp;` : ""}
+      ${apps ? `App: ${apps}` : ""}
+    </div>
+    ${tagHtml ? `<div style="margin-top:5px" class="tag-list">${tagHtml}</div>` : ""}
+    <button class="ctrl-btn" style="margin-top:6px;width:100%;padding:4px 8px;" onclick="focusNode('${ip}')">Go to node</button>
+  </li>`;
+}
+
+const _geoCache = {};
+
+async function fetchGeo(ips) {
+  const toFetch = ips.filter(ip => _geoCache[ip] === undefined);
+  if (toFetch.length) {
+    try {
+      const r = await fetch("/api/geoip/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ips: toFetch }),
+      });
+      Object.assign(_geoCache, await r.json());
+    } catch { /* network error — leave placeholders */ }
+  }
+  ips.forEach(ip => {
+    const country = _geoCache[ip] || "Unknown";
+    document.querySelectorAll(`[data-geo-ip="${ip}"]`).forEach(el => {
+      el.textContent = country;
+    });
+  });
+}
+
+function copyIp(ip, btn) {
+  const confirm = () => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+    setTimeout(() => { btn.innerHTML = orig; }, 1500);
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(ip).then(confirm);
+  } else {
+    // fallback for plain-HTTP origins
+    const ta = document.createElement("textarea");
+    ta.value = ip;
+    ta.style.cssText = "position:fixed;opacity:0;pointer-events:none;";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    confirm();
+  }
+}
+
+async function doNslookup(ip) {
+  const el = document.getElementById("nslookupResult");
+  if (!el) return;
+  el.style.display = "block";
+  el.innerHTML = `<div style="font-size:11px;color:var(--text-muted);padding:4px 0;">Looking up ${escHtml(ip)}…</div>`;
+  try {
+    const fd = new FormData();
+    fd.append("ip", ip);
+    const r = await fetch("/api/nslookup/", { method: "POST", body: fd });
+    const data = await r.json();
+    if (data.error) {
+      el.innerHTML = `<div style="color:#f97583;font-size:12px;padding:4px 0;">${escHtml(data.error)}</div>`;
+    } else {
+      el.innerHTML = `<pre style="font-size:11px;color:var(--text-muted);white-space:pre;margin:0;background:var(--bg);padding:8px;border-radius:4px;border:1px solid var(--border);overflow:scroll;max-height:200px;scrollbar-width:auto;scrollbar-color:#30363d #0d1117;">${escHtml(data.output)}</pre>`;
+    }
+  } catch {
+    el.innerHTML = `<div style="color:#f97583;font-size:12px;padding:4px 0;">Request failed.</div>`;
+  }
+}
+
+function goToNode(id) {
+  const n = nodeSel ? nodeSel.filter(d => d.id === id) : null;
+  if (!n || n.empty()) return;
+  const datum = n.datum();
+  const w = document.getElementById("graphWrap").clientWidth;
+  const h = document.getElementById("graphWrap").clientHeight;
+  svg.transition().duration(500).call(
+    zoomBehavior.transform,
+    d3.zoomIdentity.translate(w / 2 - datum.x, h / 2 - datum.y)
+  );
+}
+
+function focusNode(ip) {
+  if (!nodeSel) return;
+  const n = nodeSel.filter(d => d.id === ip);
+  if (n.empty()) return;
+  const datum = n.datum();
+
+  // Pan to node
+  const w = document.getElementById("graphWrap").clientWidth;
+  const h = document.getElementById("graphWrap").clientHeight;
+  svg.transition().duration(500).call(
+    zoomBehavior.transform,
+    d3.zoomIdentity.translate(w/2 - datum.x, h/2 - datum.y)
+  );
+
+  selectNode(datum, simLinks);
+}
+
+function closePanel() {
+  document.getElementById("sidePanel").classList.remove("open");
+  deselectAll();
+}
+
+// ── Hide / restore ───────────────────────────────────────────────────────────
+function isolateNode(id) {
+  const keep = new Set([id]);
+  simLinks.forEach(l => {
+    if (l.source.id === id) keep.add(l.target.id);
+    if (l.target.id === id) keep.add(l.source.id);
+  });
+
+  simNodes.forEach(n => { if (!keep.has(n.id)) hiddenNodes.add(n.id); });
+  simLinks.forEach(l => {
+    if (l.source.id !== id && l.target.id !== id) hiddenLinks.add(l);
+  });
+
+  applyVisibility();
+
+  const btn = document.getElementById("restoreBtn");
+  btn.textContent = `↩ Restore hidden (${hiddenNodes.size})`;
+  btn.style.display = "inline-block";
+
+  const nodeEl = nodeSel ? nodeSel.filter(d => d.id === id) : null;
+  if (nodeEl && !nodeEl.empty()) {
+    const datum = nodeEl.datum();
+    selectNode(datum, simLinks);
+    reheat();
+    const w = document.getElementById("graphWrap").clientWidth;
+    const h = document.getElementById("graphWrap").clientHeight;
+    svg.transition().duration(500).call(
+      zoomBehavior.transform,
+      d3.zoomIdentity.translate(w / 2 - datum.x, h / 2 - datum.y)
+    );
+  } else {
+    reheat();
+    resetZoom();
+  }
+}
+
+function hideNode(id) {
+  hiddenNodes.add(id);
+  simLinks.forEach(l => {
+    if (l.source.id === id || l.target.id === id) hiddenLinks.add(l);
+  });
+
+  // Hide nodes that are now fully orphaned (all their links are hidden)
+  simNodes.forEach(n => {
+    if (hiddenNodes.has(n.id)) return;
+    const hasVisibleLink = simLinks.some(l =>
+      !hiddenLinks.has(l) &&
+      (l.source.id === n.id || l.target.id === n.id)
+    );
+    if (!hasVisibleLink) hiddenNodes.add(n.id);
+  });
+
+  closePanel();
+  applyVisibility();
+
+  const btn = document.getElementById("restoreBtn");
+  btn.textContent = `↩ Restore hidden (${hiddenNodes.size})`;
+  btn.style.display = "inline-block";
+
+  reheat();
+  resetZoom();
+}
+
+function restoreHidden() {
+  hiddenNodes.clear();
+  hiddenLinks.clear();
+  applyVisibility();
+
+  const btn = document.getElementById("restoreBtn");
+  btn.style.display = "none";
+
+  recenterView();
+}
+
+function recenterView() {
+  if (!simNodes) return;
+  const visible = simNodes.filter(n => !hiddenNodes.has(n.id));
+  if (!visible.length) return;
+
+  const xs = visible.map(n => n.x);
+  const ys = visible.map(n => n.y);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+
+  const w = document.getElementById("graphWrap").clientWidth;
+  const h = document.getElementById("graphWrap").clientHeight;
+  svg.transition().duration(600).call(
+    zoomBehavior.transform,
+    d3.zoomIdentity.translate(w / 2 - cx, h / 2 - cy)
+  );
+}
+
+// ── Logs modal ───────────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function fmtCell(col, val) {
+  if (/port/i.test(col) && /^\d+\.0$/.test(val)) return val.slice(0, -2);
+  return val;
+}
+
+function aggregateLogs(rows, cols) {
+  // Key columns: src IP, dst IP, dst port
+  const srcIdx  = cols.indexOf(graphData.stats.src_col);
+  const dstIdx  = cols.indexOf(graphData.stats.dst_col);
+  const portIdx = cols.findIndex(c => /destination.{0,4}port/i.test(c));
+  const keyIndices = [srcIdx, dstIdx, portIdx].filter(i => i >= 0);
+
+  // Find timestamp columns for newest-first sort
+  const tsIndices = cols.reduce((acc, c, i) => {
+    if (/time|date|stamp/i.test(c)) acc.push(i);
+    return acc;
+  }, []);
+
+  const sorted = [...rows];
+  if (tsIndices.length > 0) {
+    sorted.sort((a, b) => {
+      for (const ti of tsIndices) {
+        const ta = new Date(a[ti]).getTime();
+        const tb = new Date(b[ti]).getTime();
+        if (!isNaN(ta) && !isNaN(tb) && ta !== tb) return tb - ta;
+        if (a[ti] !== b[ti]) return a[ti] < b[ti] ? 1 : -1;
+      }
+      return 0;
+    });
+  }
+
+  // Deduplicate: rows with same src IP + dst IP + dst port are duplicates; keep newest
+  // Returns [{row, count}] so callers can show how many rows were merged
+  const seen = new Map();
+  const result = [];
+  for (const r of sorted) {
+    const key = keyIndices.map(i => r[i]).join("\0");
+    if (seen.has(key)) {
+      result[seen.get(key)].count++;
+    } else {
+      seen.set(key, result.length);
+      result.push({ row: r, count: 1 });
+    }
+  }
+  return result;
+}
+
+function renderLogsTable() {
+  const cols = graphData.columns;
+  const srcIdx = cols.indexOf(graphData.stats.src_col);
+  const dstIdx = cols.indexOf(graphData.stats.dst_col);
+  const COUNT_COL = cols.length; // virtual sort index for the aggregate Count column
+
+  let rows = graphData.rows.filter(r =>
+    (r[srcIdx] || "").includes(currentLogsIp) || (r[dstIdx] || "").includes(currentLogsIp)
+  );
+  const total = rows.length;
+
+  let aggRows = null;
+  if (logsAggregated) aggRows = aggregateLogs(rows, cols);
+
+  // Apply column sort
+  if (logSortCol >= 0) {
+    if (aggRows) {
+      aggRows = [...aggRows].sort((a, b) => {
+        if (logSortCol === COUNT_COL) return (a.count - b.count) * logSortDir;
+        const av = a.row[logSortCol] ?? "";
+        const bv = b.row[logSortCol] ?? "";
+        const an = parseFloat(av), bn = parseFloat(bv);
+        if (!isNaN(an) && !isNaN(bn)) return (an - bn) * logSortDir;
+        return String(av).localeCompare(String(bv)) * logSortDir;
+      });
+    } else {
+      rows = [...rows].sort((a, b) => {
+        const av = a[logSortCol] ?? "";
+        const bv = b[logSortCol] ?? "";
+        const an = parseFloat(av), bn = parseFloat(bv);
+        if (!isNaN(an) && !isNaN(bn)) return (an - bn) * logSortDir;
+        return String(av).localeCompare(String(bv)) * logSortDir;
+      });
+    }
+  }
+
+  const displayCount = aggRows ? aggRows.length : rows.length;
+  document.getElementById("modalTitle").textContent =
+    `Logs for ${currentLogsIp} — ${displayCount.toLocaleString()}${logsAggregated ? ` of ${total.toLocaleString()}` : ""} entries`;
+
+  let html = `<table class="log-table"><thead><tr>`;
+  if (aggRows) {
+    const active = logSortCol === COUNT_COL;
+    const arrow = active ? (logSortDir === 1 ? " ▲" : " ▼") : "";
+    html += `<th class="${active ? "sort-active" : ""}" onclick="sortLogsBy(${COUNT_COL})">Count${arrow}</th>`;
+  }
+  cols.forEach((c, i) => {
+    const active = logSortCol === i;
+    const arrow = active ? (logSortDir === 1 ? " ▲" : " ▼") : "";
+    html += `<th class="${active ? "sort-active" : ""}" onclick="sortLogsBy(${i})">${escHtml(c)}${arrow}</th>`;
+  });
+  html += `</tr></thead><tbody>`;
+  if (aggRows) {
+    aggRows.forEach(({ row, count }) => {
+      html += `<tr><td>${count.toLocaleString()}</td>`;
+      row.forEach((v, i) => {
+        const display = escHtml(fmtCell(cols[i], v));
+        html += `<td title="${escHtml(v)}">${display}</td>`;
+      });
+      html += `</tr>`;
+    });
+  } else {
+    rows.forEach(r => {
+      html += `<tr>`;
+      r.forEach((v, i) => {
+        const display = escHtml(fmtCell(cols[i], v));
+        html += `<td title="${escHtml(v)}">${display}</td>`;
+      });
+      html += `</tr>`;
+    });
+  }
+  html += `</tbody></table>`;
+
+  document.getElementById("modalContent").innerHTML = html;
+}
+
+function sortLogsBy(idx) {
+  if (logSortCol === idx) {
+    logSortDir = -logSortDir;
+  } else {
+    logSortCol = idx;
+    logSortDir = 1;
+  }
+  renderLogsTable();
+}
+
+function showLogs(ip) {
+  if (!graphData || !graphData.rows) return;
+  currentLogsIp = ip;
+  logsAggregated = false;
+  logSortCol = -1;
+  logSortDir = 1;
+  document.getElementById("aggregateToggle").classList.remove("active");
+  renderLogsTable();
+  document.getElementById("logsModal").classList.add("visible");
+}
+
+function toggleAggregate() {
+  logsAggregated = !logsAggregated;
+  logSortCol = -1;
+  logSortDir = 1;
+  document.getElementById("aggregateToggle").classList.toggle("active", logsAggregated);
+  renderLogsTable();
+}
+
+function closeLogs() {
+  document.getElementById("logsModal").classList.remove("visible");
+  document.getElementById("modalContent").innerHTML = "";
+  currentLogsIp = null;
+  logsAggregated = false;
+}
+
+// ── Tooltip ──────────────────────────────────────────────────────────────────
+function showTooltip(evt, d, links) {
+  const out = links.filter(l => l.source.id === d.id).length;
+  const inc = links.filter(l => l.target.id === d.id).length;
+  const total = [...links.filter(l => l.source.id === d.id || l.target.id === d.id)]
+    .reduce((a,l) => a + l.count, 0);
+
+  document.getElementById("tooltip").innerHTML = `
+    <div class="t-ip">${d.id}</div>
+    <div class="t-row"><strong>${d.type}</strong> node</div>
+    <div class="t-row">Outbound: <strong>${out}</strong> &nbsp; Inbound: <strong>${inc}</strong></div>
+    <div class="t-row">Total events: <strong>${total.toLocaleString()}</strong></div>
+  `;
+  document.getElementById("tooltip").classList.add("visible");
+  moveTooltip(evt);
+}
+
+function moveTooltip(evt) {
+  const tt = document.getElementById("tooltip");
+  tt.style.left = (evt.clientX + 14) + "px";
+  tt.style.top  = (evt.clientY - 10) + "px";
+}
+
+function hideTooltip() {
+  document.getElementById("tooltip").classList.remove("visible");
+}
+
+// ── UI helpers ───────────────────────────────────────────────────────────────
+function showLoading(msg) {
+  document.getElementById("loadingMsg").textContent = msg || "Loading…";
+  document.getElementById("loading").classList.add("visible");
+}
+function hideLoading() {
+  document.getElementById("loading").classList.remove("visible");
+}
+function showError(msg) {
+  const el = document.getElementById("errorMsg");
+  el.textContent = msg;
+  el.classList.add("visible");
+  setTimeout(() => el.classList.remove("visible"), 6000);
+}
+function hideError() {
+  document.getElementById("errorMsg").classList.remove("visible");
+}
+
+// ── Checkpoint API Modal ──────────────────────────────────────────────────────
+let cpSid    = null;
+let cpServer = "";
+
+function openCpModal()  { document.getElementById("cpModal").classList.add("visible"); }
+function closeCpModal() { document.getElementById("cpModal").classList.remove("visible"); }
+
+function _cpSetStatus(ok, text) {
+  const dot  = document.getElementById("cpConnStatus").querySelector(".cp-dot");
+  const span = document.getElementById("cpConnText");
+  dot.className  = "cp-dot" + (ok === true ? " ok" : ok === false ? " err" : "");
+  span.textContent = text;
+  span.style.color = ok === true ? "#3fb950" : ok === false ? "#f97583" : "var(--text-muted)";
+}
+
+function _cpQueryEnable(on) {
+  const sec = document.getElementById("cpQuerySection");
+  sec.style.opacity       = on ? "1"    : ".35";
+  sec.style.pointerEvents = on ? "auto" : "none";
+}
+
+async function cpConnect() {
+  const server  = document.getElementById("cpServer").value.trim();
+  const apiKey  = document.getElementById("cpApiKey").value.trim();
+  if (!server || !apiKey) { _cpSetStatus(false, "Server and API key required."); return; }
+  const btn = document.getElementById("cpConnectBtn");
+  btn.disabled = true; btn.textContent = "Connecting…";
+  _cpSetStatus(null, "Connecting…");
+  try {
+    const r    = await fetch("/api/cp/connect/", { method:"POST", headers:{"Content-Type":"application/json"},
+                   body: JSON.stringify({ server, api_key: apiKey }) });
+    const data = await r.json();
+    if (data.error) {
+      _cpSetStatus(false, data.error);
+    } else {
+      cpSid    = data.sid;
+      cpServer = server;
+      _cpSetStatus(true, `Connected${data["api-server-version"] ? " · v" + data["api-server-version"] : ""}`);
+      document.getElementById("cpSidDisplay").textContent = cpSid;
+      document.getElementById("cpSidRow").style.display   = "block";
+      _cpQueryEnable(true);
+    }
+  } catch { _cpSetStatus(false, "Request failed."); }
+  btn.disabled = false; btn.textContent = "Connect to Mgmt Server";
+}
+
+async function cpLogout() {
+  if (cpSid && cpServer) {
+    try {
+      await fetch("/api/cp/logout/", { method:"POST", headers:{"Content-Type":"application/json"},
+                  body: JSON.stringify({ server: cpServer, sid: cpSid }) });
+    } catch {}
+  }
+  cpSid = null; cpServer = "";
+  _cpSetStatus(null, "Not connected");
+  document.getElementById("cpSidRow").style.display = "none";
+  document.getElementById("cpSidDisplay").textContent = "";
+  _cpQueryEnable(false);
+}
+
+function cpTimeFrameChange() {
+  const custom = document.getElementById("cpTimeFrame").value === "custom";
+  document.getElementById("cpCustomRange").style.display = custom ? "grid" : "none";
+}
+
+async function cpPullLogs() {
+  if (!cpSid || !cpServer) return;
+  const timeFrame = document.getElementById("cpTimeFrame").value;
+  const maxLogs   = document.getElementById("cpMaxLogs").value;
+  let startTime = "", endTime = "";
+  if (timeFrame === "custom") {
+    const sv = document.getElementById("cpStartTime").value;
+    const ev = document.getElementById("cpEndTime").value;
+    if (!sv || !ev) { document.getElementById("cpQueryStatus").textContent = "Select start and end time."; return; }
+    // Convert datetime-local ("YYYY-MM-DDTHH:MM") → Checkpoint format ("YYYY-MM-DDTHH:MM:SS")
+    startTime = sv.length === 16 ? sv + ":00" : sv;
+    endTime   = ev.length === 16 ? ev + ":00" : ev;
+  }
+
+  const btn    = document.getElementById("cpPullBtn");
+  const status = document.getElementById("cpQueryStatus");
+  btn.disabled = true; btn.textContent = "Pulling logs…";
+  status.style.color = "var(--text-muted)";
+  status.textContent = "Querying management server…";
+
+  try {
+    const r = await fetch("/api/cp/query/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ server: cpServer, sid: cpSid,
+                             time_frame: timeFrame, start_time: startTime,
+                             end_time: endTime, max_logs: maxLogs }),
+    });
+    const data = await r.json();
+    if (data.error) {
+      status.style.color = "#f97583";
+      status.textContent = "✗ " + data.error;
+    } else {
+      const total = data._cp_total ?? data.stats?.total_rows ?? 0;
+      status.style.color = "#3fb950";
+      status.textContent = `✓ ${data.stats.unique_connections} connections from ${total.toLocaleString()} logs`;
+      graphData = data;
+      renderStats(data.stats);
+      buildGraph(data);
+      closeCpModal();
+    }
+  } catch {
+    status.style.color = "#f97583";
+    status.textContent = "✗ Request failed.";
+  }
+  btn.disabled = false; btn.textContent = "Pull Logs";
+}
+</script>
+</body>
+</html>
