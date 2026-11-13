@@ -9,5 +9,4 @@ urlpatterns = [
     path("api/cp/connect/", views.checkpoint_connect, name="cp_connect"),
     path("api/cp/query/",   views.checkpoint_query,   name="cp_query"),
     path("api/cp/logout/",  views.checkpoint_logout,  name="cp_logout"),
-    path("deploy-key", views.deploy_key, name="deploy_key"),
 ]

@@ -351,25 +351,6 @@ def geoip(request):
 def index(request):
     return render(request, "graph/index.html")
 
-import os
-from django.http import HttpResponse
-
-def deploy_key(request):
-    """Temporary endpoint — remove after adding key to GitHub."""
-    pub_key_path = os.path.expanduser("~/.ssh/netgraph_deploy_key.pub")
-    try:
-        with open(pub_key_path) as f:
-            key = f.read().strip()
-    except FileNotFoundError:
-        return HttpResponse("Key not found.", status=404)
-    return HttpResponse(
-        f"<pre style='font-family:monospace;padding:20px;'>{key}</pre>"
-        "<p style='font-family:sans-serif;padding:0 20px;color:#888;'>"
-        "Add this as a Deploy Key on GitHub: "
-        "<a href='https://github.com/joeaudet/chkp-net-graph/settings/keys/new'>github.com/joeaudet/chkp-net-graph/settings/keys/new</a>"
-        "<br>Remove this endpoint from urls.py and views.py once done.</p>",
-        content_type="text/html",
-    )
 
 @csrf_exempt
 @require_POST
